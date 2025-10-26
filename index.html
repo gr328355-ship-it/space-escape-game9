@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Space Escape — Planet Explorer</title>
+<style>
+:root {
+  --retro-green: #00ff66;
+  --panel-bg: rgba(0,16,0,0.9);
+  --bg-black: #000;
+}
+html,body{margin:0;height:100%;font-family:"Courier New", monospace;background:var(--bg-black);color:var(--retro-green);}
+canvas{display:block;width:100%;height:100vh;}
+#ui{position:absolute;top:16px;left:16px;z-index:50;display:flex;flex-direction:column;gap:8px;}
+.btn{background:transparent;color:var(--retro-green);border:1px solid var(--retro-green);padding:6px 10px;border-radius:6px;cursor:pointer;font-family:inherit;}
+.btn:hover{background:var(--retro-green);color:black;}
+#infoPanel{position:absolute;right:16px;top:16px;width:360px;z-index:50;background:var(--panel-bg);border:2px solid var(--retro-green);padding:12px;border-radius:8px;display:none;max-height:70vh;overflow:auto;}
+#infoPanel h3{margin:4px 0 8px 0;color:var(--retro-green);}
+#infoPanel p{margin:4px 0;font-size:14px;color:var(--retro-green);}
+#hud{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:50;display:flex;gap:12px;align-items:center;background:var(--panel-bg);padding:8px 14px;border-radius:8px;border:2px solid var(--retro-green);}
+.bar{width:130px;height:14px;background:#002200;border:1px solid var(--retro-green);position:relative;}
+.fill{height:100%;background:var(--retro-green);width:100%;}
+#status{position:absolute;left:50%;top:8px;transform:translateX(-50%);color:var(--retro-green);z-index:50;text-shadow:0 0 6px rgba(0,255,102,0.2);font-size:15px;}
+#arrivalButtons{position:absolute;left:50%;transform:translateX(-50%);bottom:80px;z-index:50;display:none;gap:8px;}
+#help{position:absolute;left:16px;bottom:16px;font-size:12px;z-index:50;color:var(--retro-green);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="status">🚨 Earth is infected! Escape to a habitable planet.</div>
+
+<div id="ui">
+  <button class="btn" onclick="startSelectionMode()">☄️ Select Planet</button>
+  <button class="btn" onclick="toggleInfoPanel()">ℹ️ Planet Data</button>
+</div>
+
+<div id="infoPanel">
+  <h3 id="infoTitle">Planet Data</h3>
+  <div id="infoContent">
+    <p>Choose a planet to view details about its properties, orbit, star, and radiation.</p>
+  </div>
+  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn" onclick="showPlanetProps()">Planetary</button>
+    <button class="btn" onclick="showOrbitalProps()">Orbital</button>
+    <button class="btn" onclick="showStellarProps()">Stellar</button>
+    <button class="btn" onclick="showRadiationProps()">Radiation</button>
+  </div>
+</div>
+
+<div id="arrivalButtons">
+  <button class="btn" onclick="showPlanetProps()">Planetary Info</button>
+  <button class="btn" onclick="showStellarProps()">Scan Star</button>
+  <button class="btn" onclick="showRadiationProps()">Radiation Info</button>
+</div>
+
+<div id="hud">
+  <div>Health <span id="healthValue">100%</span></div>
+  <div class="bar"><div id="healthBar" class="fill"></div></div>
+  <div>Hunger <span id="hungerValue">80%</span></div>
+  <div class="bar"><div id="hungerBar" class="fill" style="width:80%"></div></div>
+  <div>Oxygen <span id="oxygenValue">100%</span></div>
+  <div class="bar"><div id="oxygenBar" class="fill"></div></div>
+  <div>Fuel <span id="fuelValue">100%</span></div>
+  <div class="bar"><div id="fuelBar" class="fill"></div></div>
+</div>
+
+<div id="help">WASD to move rover. Explore the planet and learn about its properties!</div>
+
+<script>
+// =================== Planet Data ===================
+const planets = {
+"W7-21":{
+name:"W7-21",
+planetaryProps:`<strong>Radius:</strong> 10,551,690.55 m<br/><strong>Mass:</strong> 2.568 × 10^25 kg (4.3 M⊕)<br/><strong>Gravity:</strong> 15.38 m/s²`,
+orbitalProps:`<strong>Orbit Period:</strong> 17.8 days<br/><strong>Orbit Radius:</strong> 1.26 × 10^10 m (0.0842 AU)<br/><strong>Habitable Zone:</strong> 0.04 AU<br/><strong>Time in Habitable Zone:</strong> 351.4 Gy`,
+stellarProps:`<strong>Star Class:</strong> M3<br/><strong>Mass:</strong> 5.00 × 10^29 kg (0.25 M☉)<br/><strong>Radius:</strong> 1.8 × 10^8 m (0.26 R☉)<br/><strong>Luminosity:</strong> 1.76 × 10^25 W (0.046 L☉)<br/><strong>Temperature:</strong> 3500 K (Red-Orange)`,
+radiation:`<strong>Stellar Flux at Surface:</strong> 8500 W/m²<br/><strong>Brightness from Earth:</strong> 7.8 × 10^-11 W/m²<br/><strong>Surface Temperature:</strong> TBD`
+}
+};
+let selectedPlanet = null;
+
+// =================== Canvas Setup ===================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let DPR = window.devicePixelRatio || 1;
+let W = window.innerWidth, H = window.innerHeight;
+function resize(){DPR = window.devicePixelRatio||1; canvas.width=W*DPR; canvas.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);}
+window.addEventListener('resize',()=>{W=window.innerWidth; H=window.innerHeight; resize();});
+resize();
+
+// =================== Sky, Stars & Nebula ===================
+let stars=[],nebula=[],starCount=300,nebulaCount=40;
+function resetStars(){stars=[];for(let i=0;i<starCount;i++){stars.push({x:Math.random()*W,y:Math.random()*H*0.7,depth:Math.random()*0.9+0.1,size:Math.random()*2+0.5,twinkle:Math.random()});}}
+function resetNebula(){nebula=[];for(let i=0;i<nebulaCount;i++){nebula.push({x:Math.random()*W,y:Math.random()*H*0.7,radius:Math.random()*80+40,color:`rgba(${50+Math.random()*100},0,${100+Math.random()*155},0.05)`});}}
+resetStars(); resetNebula();
+
+function drawSky(speed=1){
+  const gradient = ctx.createLinearGradient(0,0,0,H*0.7);
+  gradient.addColorStop(0,'#0a0a25');
+  gradient.addColorStop(0.5,'#2a2a55');
+  gradient.addColorStop(1,'#644c46');
+  ctx.fillStyle=gradient; ctx.fillRect(0,0,W,H*0.7);
+
+  for(let n of nebula){
+    n.x+=0.02*speed; if(n.x>W+n.radius)n.x=-n.radius;
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.radius,0,Math.PI*2); ctx.fillStyle=n.color; ctx.fill();
+  }
+
+  for(let s of stars){
+    s.y+=(2+(1-s.depth)*8)*speed;
+    s.x+=Math.sin(s.twinkle*10)*0.1;
+    if(s.y>H){s.y=-10; s.x=Math.random()*W; s.depth=Math.random()*0.9+0.1; s.size=Math.random()*2+0.5;}
+    ctx.fillStyle=`rgba(255,255,255,${0.6+(1-s.depth)*0.4})`;
+    ctx.fillRect(Math.round(s.x),Math.round(s.y),Math.max(1,Math.round(s.size)),Math.max(1,Math.round(s.size)));
+  }
+}
+
+// =================== Sun ===================
+function drawSun(){
+  const sunX=W*0.8, sunY=H*0.2, sunR=60;
+  for(let r=120;r>0;r-=12){ctx.fillStyle=`rgba(255,150,0,0.02)`; ctx.beginPath(); ctx.arc(sunX,sunY,r,0,Math.PI*2); ctx.fill();}
+  ctx.beginPath(); ctx.arc(sunX,sunY,sunR,0,Math.PI*2); ctx.fillStyle='orange'; ctx.fill();
+}
+
+// =================== Terrain ===================
+let terrain=[];
+function generateTerrain(){
+  terrain=[]; const segments=120;
+  for(let i=0;i<=segments;i++){
+    terrain.push({x:i*W/segments,y:H*0.7+Math.random()*80});
+  }
+}
+generateTerrain();
+function drawTerrain(){
+  ctx.fillStyle="#2e2b2a"; ctx.beginPath(); ctx.moveTo(0,H);
+  for(let p of terrain) ctx.lineTo(p.x,p.y);
+  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+}
+
+// =================== Rover ===================
+let rover={x:W/2,y:H*0.65,w:20,h:10,speed:2};
+let keys={};
+window.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+function moveRover(){
+  if(keys['w'])rover.y-=rover.speed;
+  if(keys['s'])rover.y+=rover.speed;
+  if(keys['a'])rover.x-=rover.speed;
+  if(keys['d'])rover.x+=rover.speed;
+  rover.x=Math.max(0,Math.min(W,rover.x));
+  rover.y=Math.max(H*0.5,H*0.9,Math.min(H,rover.y));
+}
+function drawRover(){ctx.fillStyle='#00ff66';ctx.fillRect(rover.x-rover.w/2,rover.y-rover.h/2,rover.w,rover.h);}
+
+// =================== HUD ===================
+let health=100,hunger=80,oxygen=100,fuel=100;
+setInterval(()=>{
+  hunger=Math.max(0,hunger-0.02); if(hunger<20)health=Math.max(0,health-0.01);
+  oxygen=Math.max(0,oxygen-0.02); fuel=Math.max(0,fuel-0.01);
+  document.getElementById('healthBar').style.width=health+'%';
+  document.getElementById('hungerBar').style.width=hunger+'%';
+  document.getElementById('oxygenBar').style.width=oxygen+'%';
+  document.getElementById('fuelBar').style.width=fuel+'%';
+  document.getElementById('healthValue').textContent=Math.round(health)+'%';
+  document.getElementById('hungerValue').textContent=Math.round(hunger)+'%';
+  document.getElementById('oxygenValue').textContent=Math.round(oxygen)+'%';
+  document.getElementById('fuelValue').textContent=Math.round(fuel)+'%';
+},150);
+
+// =================== Flow ===================
+let mode="intro",t=0,lastFrame=performance.now(),travelStart=0,travelDuration=9000;
+
+// =================== Info Panel ===================
+const statusEl=document.getElementById('status');
+const infoPanel=document.getElementById('infoPanel');
+const arrivalButtons=document.getElementById('arrivalButtons');
+
+function toggleInfoPanel(){infoPanel.style.display=(infoPanel.style.display==='none' || infoPanel.style.display==='')?'block':'none';}
+function startSelectionMode(){
+  let choice='W7-21';
+  selectedPlanet=planets[choice];
+  beginTravel();
+}
+function beginTravel(){
+  mode='traveling'; t=0;
+  statusEl.textContent=`Travelling to ${selectedPlanet.name}`;
+  arrivalButtons.style.display='none';
+  travelStart=performance.now();
+  travelDuration=9000;
+}
+function showPlanetProps(){infoPanel.style.display='block'; document.getElementById('infoTitle').innerText=`${selectedPlanet.name} — Planetary Properties`; document.getElementById('infoContent').innerHTML=selectedPlanet?`<p>${selectedPlanet.planetaryProps}</p>`:`<p>No planet chosen yet.</p>`;}
+function showOrbitalProps(){infoPanel.style.display='block'; document.getElementById('infoTitle').innerText=`${selectedPlanet.name} — Orbital Properties`; document.getElementById('infoContent').innerHTML=selectedPlanet?`<p>${selectedPlanet.orbitalProps}</p>`:`<p>No planet chosen yet.</p>`;}
+function showStellarProps(){infoPanel.style.display='block'; document.getElementById('infoTitle').innerText=`${selectedPlanet.name} — Stellar Properties`; document.getElementById('infoContent').innerHTML=selectedPlanet?`<p>${selectedPlanet.stellarProps}</p>`:`<p>No planet chosen yet.</p>`;}
+function showRadiationProps(){infoPanel.style.display='block'; document.getElementById('infoTitle').innerText=`${selectedPlanet.name} — Radiation & Temp`; document.getElementById('infoContent').innerHTML=selectedPlanet?`<p>${selectedPlanet.radiation}</p>`:`<p>No planet chosen yet.</p>`;}
+
+// =================== Animation ===================
+function animate(now){
+  const dt=now-lastFrame; lastFrame=now; t+=dt;
+  ctx.clearRect(0,0,W,H);
+  if(mode==='intro'){drawSky(0.1);drawSun(); statusEl.textContent="🚨 Earth is infected! Escape to a habitable planet.";}
+  else if(mode==='traveling'){drawSky(1.5);drawSun(); statusEl.textContent=`Travelling to ${selectedPlanet.name} — ${Math.floor((now-travelStart)/travelDuration*100)}%`; if(now-travelStart>=travelDuration){mode='arrived';statusEl.textContent=`Arrived at ${selectedPlanet.name}`;arrivalButtons.style.display='flex';}}
+  else if(mode==='arrived'){drawSky(0.2);drawSun(); drawTerrain(); moveRover(); drawRover();}
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
